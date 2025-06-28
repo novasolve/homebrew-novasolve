@@ -5,7 +5,7 @@ class Nova < Formula
   
   # For now, let's create a simple test script
   url "https://github.com/novasolve/homebrew-novasolve/archive/refs/tags/v1.0.0.tar.gz"
-  sha256 "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"  # placeholder
+  sha256 "355d735c94537578d561f6dd2f580c609a704b3078f1a931ebedd28bf8f71962"
 
   def install
     # Create a simple test script for now
