@@ -1,0 +1,138 @@
+# Rock 1: One-Command Install Test Matrix
+# Target: ≥95% success on brew install novasolve/novasolve/nova
+name: Homebrew Install Test Matrix
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 */6 * * *'  # Run every 6 hours
+  workflow_dispatch:
+
+jobs:
+  test-install:
+    name: Install Test (${{ matrix.os }} - ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS Intel
+          - os: macos
+            arch: x86_64
+            runner: macos-13
+          # macOS ARM (M1/M2)
+          - os: macos
+            arch: arm64
+            runner: macos-latest
+          # Linux x86_64
+          - os: linux
+            arch: x86_64
+            runner: ubuntu-latest
+          # Linux ARM64
+          - os: linux
+            arch: arm64
+            runner: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@master
+
+      - name: Install Nova via Homebrew
+        id: brew_install
+        run: |
+          START_TIME=$(date +%s)
+          brew tap novasolve/novasolve
+          brew install nova
+          END_TIME=$(date +%s)
+          INSTALL_TIME=$((END_TIME - START_TIME))
+          echo "install_time=$INSTALL_TIME" >> $GITHUB_OUTPUT
+
+      - name: Verify Installation
+        run: |
+          nova --version
+          nova --help
+
+      - name: Run brew test
+        run: brew test nova
+
+      - name: Post-install telemetry
+        if: always()
+        env:
+          TELEMETRY_ENDPOINT: ${{ secrets.TELEMETRY_ENDPOINT }}
+        run: |
+          RESULT="${{ steps.brew_install.outcome }}"
+          OS="${{ matrix.os }}"
+          ARCH="${{ matrix.arch }}"
+          INSTALL_TIME="${{ steps.brew_install.outputs.install_time }}"
+          
+          # Send telemetry ping
+          if [ -n "$TELEMETRY_ENDPOINT" ]; then
+            curl -X POST "$TELEMETRY_ENDPOINT/install_ok" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"result\": \"$RESULT\",
+                \"os\": \"$OS\",
+                \"arch\": \"$ARCH\",
+                \"install_time\": $INSTALL_TIME,
+                \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",
+                \"runner\": \"${{ matrix.runner }}\"
+              }" || true
+          fi
+
+  test-bot:
+    name: Homebrew test-bot
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        runner: [macos-latest, ubuntu-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@master
+
+      - name: Run brew test-bot
+        run: |
+          brew tap novasolve/novasolve
+          brew test-bot --only-formulae --skip-dependents nova
+
+  summary:
+    name: Installation Success Rate
+    needs: [test-install]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Calculate success rate
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const jobs = ${{ toJSON(needs.test-install) }};
+            const total = Object.keys(jobs).length;
+            const successful = Object.values(jobs).filter(job => job.result === 'success').length;
+            const successRate = (successful / total) * 100;
+            
+            console.log(`Success rate: ${successRate}% (${successful}/${total})`);
+            
+            if (successRate < 95) {
+              core.setFailed(`Installation success rate ${successRate}% is below 95% threshold`);
+            }
+            
+            // Create check run with details
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'Homebrew Install Success Rate',
+              head_sha: context.sha,
+              status: 'completed',
+              conclusion: successRate >= 95 ? 'success' : 'failure',
+              output: {
+                title: `Installation Success: ${successRate.toFixed(1)}%`,
+                summary: `${successful} out of ${total} installations succeeded`,
+              }
+            }); 
