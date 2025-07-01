@@ -3,9 +3,8 @@ class Novasolve < Formula
   homepage "https://joinnova.com"
   version "1.0.0"
   
-  # For production release
-  # For local testing
-  url "https://github.com/novasolve/homebrew-novasolve/raw/main/releases/nova-1.0.0.tar.gz", __FILE__)}"
+  # Binary release hosted in tap repo
+  url "https://github.com/novasolve/homebrew-novasolve/raw/main/releases/nova-1.0.0.tar.gz"
   sha256 "1b6b4b8d4e06a125b7285c5f7064c975826febbfd14388280ab64d6e9c4a0794"
 
   depends_on "python@3.12"
