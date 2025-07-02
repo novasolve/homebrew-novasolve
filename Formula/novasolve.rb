@@ -1,25 +1,35 @@
 class Novasolve < Formula
-  desc "AI teammate that fixes failing tests fast"
+  desc "AI-powered Python test fixer"
   homepage "https://joinnova.com"
-  version "1.0.0"
-  
-  # Binary release hosted in tap repo
-  url "https://github.com/novasolve/homebrew-novasolve/raw/main/releases/nova-1.0.0.tar.gz"
-  sha256 "1b6b4b8d4e06a125b7285c5f7064c975826febbfd14388280ab64d6e9c4a0794"
+  url "https://github.com/novasolve/homebrew-novasolve/raw/main/releases/nova-1.0.1.tar.gz"
+  sha256 "60665234028815ab541df7e243cbd70c14e9c5dbb426d3974d1b2c4af4ebafc3"
+  version "1.0.1"
 
   depends_on "python@3.12"
-  depends_on "redis" => :recommended  # For Upstash/Redis support
 
   def install
-    # Create virtual environment
+    # Create a virtual environment
     venv = libexec/"venv"
     system "python3.12", "-m", "venv", venv
+    venv_pip = venv/"bin/pip"
     
-    # Upgrade pip
-    system venv/"bin/pip", "install", "--upgrade", "pip"
+    # Install dependencies
+    system venv_pip, "install", "--upgrade", "pip"
+    system venv_pip, "install", "-r", "requirements.txt"
     
-    # Install Nova and dependencies
-    system venv/"bin/pip", "install", "-e", "."
+    # Copy the nova package directly instead of editable install
+    site_packages = venv/"lib/python3.12/site-packages"
+    cp_r "nova", site_packages
+    # Also copy novasolve package if it exists
+    cp_r "novasolve", site_packages if File.exist?("novasolve")
+    # Copy novasolve_compat package for compatibility
+    cp_r "novasolve_compat", site_packages if File.exist?("novasolve_compat")
+    
+    # Install other dependencies
+    system venv_pip, "install", "rich>=13.0.0", "redis>=5.0.0", "httpx>=0.24.0"
+    
+    # Copy demo repo
+    (share/"novasolve").install "demo_repo"
     
     # Create wrapper script
     (bin/"nova").write <<~EOS
@@ -27,29 +37,19 @@ class Novasolve < Formula
       # Nova launcher script
       
       # Set up environment
-      export PYTHONPATH="#{libexec}/venv/lib/python3.12/site-packages:$PYTHONPATH"
-      export NOVA_HOME="#{prefix}"
-      export NOVA_DEMO_PATH="#{pkgshare}/demo_repo"
+      export PYTHONPATH="#{venv}/lib/python3.12/site-packages:$PYTHONPATH"
+      export NOVA_HOME="#{opt_prefix}"
+      export NOVA_DEMO_PATH="#{share}/novasolve/demo_repo"
       
-      # Check for Redis/Upstash
-      if [ -z "$UPSTASH_REDIS_URL" ] && [ -z "$REDIS_URL" ]; then
-        echo "⚠️  No Redis URL found. Nova will use local storage."
-        echo "   For full features, set UPSTASH_REDIS_URL or REDIS_URL"
-        echo ""
-      fi
+      # Use Railway backend - no Redis check needed
+      export NOVA_USE_BACKEND="true"
+      export NOVA_BACKEND_URL="${NOVA_BACKEND_URL:-https://api.joinnova.com}"
       
       # Run Nova
       exec "#{venv}/bin/python" -m nova.cli.main "$@"
     EOS
     
-    # Make executable
     chmod 0755, bin/"nova"
-    
-    # Install demo repository
-    pkgshare.install "demo_repo"
-    
-    # Install environment template
-    pkgshare.install "env.example" if File.exist?("env.example")
   end
 
   def post_install
@@ -73,18 +73,8 @@ class Novasolve < Formula
       To get started:
         nova
       
-      For GitHub integration, you'll need:
-        export GITHUB_CLIENT_ID="your_client_id"
-        export GITHUB_CLIENT_SECRET="your_client_secret"
-      
-      For Upstash Redis (recommended):
-        export UPSTASH_REDIS_URL="your_upstash_url"
-      
-      To reset and start fresh:
-        nova --reset
-        
-      For debugging:
-        export NOVA_DEBUG=1
+      Nova handles all authentication automatically.
+      No API keys needed!
     EOS
   end
 end 
